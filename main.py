@@ -102,3 +102,7 @@ def gerar_docx(data: DocumentoData):
     except Exception as e:
         logger.error(f"Erro inesperado: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno inesperado")
+        
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "API está online"}
