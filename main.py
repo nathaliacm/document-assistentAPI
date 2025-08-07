@@ -2,88 +2,97 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any
 from docxtpl import DocxTemplate
 from tempfile import NamedTemporaryFile
-import uuid
-import os
-import logging
 from html2docx import html2docx
 from io import BytesIO
+import os
+import uuid
+import logging
 
-# Logging
+# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# CORS (ajustes de domínio)
+# CORS (pode restringir depois)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Para produção, use: ["https://seusite.com"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Models
+# ===== MODELOS =====
 class Item(BaseModel):
     nome: str
-    valor: float
+    valor: str
 
 class DocumentoData(BaseModel):
     dados: List[Item]
-    descricao: str  # campo HTML
+    descricao: str  # HTML
 
+# ===== UTILITÁRIOS =====
+def carregar_template(caminho: str) -> DocxTemplate:
+    if not os.path.exists(caminho):
+        raise HTTPException(status_code=400, detail="Template não encontrado")
+    return DocxTemplate(caminho)
+
+def converter_html_para_subdoc(doc: DocxTemplate, html: str):
+    try:
+        logger.info("Convertendo HTML para subdocumento...")
+        buffer: BytesIO = html2docx(html, title="Descrição")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Erro ao converter HTML para DOCX")
+
+    with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+        tmp.write(buffer.getvalue())
+        subdoc_path = tmp.name
+
+    try:
+        subdoc = doc.new_subdoc(subdoc_path)
+        return subdoc
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erro ao criar subdocumento")
+    finally:
+        os.unlink(subdoc_path)
+
+def construir_contexto(data: DocumentoData, doc: DocxTemplate) -> Dict[str, Any]:
+    contexto = {
+        "metas": [{"meta": item.nome, "indicador": item.valor} for item in data.dados],
+        "descricao_objetivos_gerais": converter_html_para_subdoc(doc, data.descricao),
+    }
+    # Adição de novos campos:
+    # contexto["outro_campo"] = data.outro_campo
+    return contexto
+
+def salvar_documento(doc: DocxTemplate) -> str:
+    output_filename = f"/tmp/doc-{uuid.uuid4().hex[:8]}.docx"
+    doc.save(output_filename)
+    return output_filename
+
+# ===== ENDPOINT =====
 @app.post("/gerar-docx")
 def gerar_docx(data: DocumentoData):
     try:
-        logger.info("Iniciando geração de documento")
+        logger.info("Recebendo requisição para gerar DOCX")
+        template_path = "template.docx"
 
-        # Verifica o template
-        if not os.path.exists("template.docx"):
-            raise HTTPException(status_code=400, detail="Template não encontrado")
+        doc = carregar_template(template_path)
+        contexto = construir_contexto(data, doc)
 
-        doc = DocxTemplate("template.docx")
-
-        # Converte HTML para BytesIO
         try:
-            logger.info(f"Convertendo HTML...")
-            buf = html2docx(data.descricao, title="Descrição")
+            doc.render(contexto)
         except Exception as e:
-            raise HTTPException(status_code=400, detail="HTML inválido")
-
-        # Salva buffer em temp file
-        with NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
-            tmp.write(buf.getvalue())
-            subdoc_path = tmp.name
-
-        # Cria subdocumento
-        try:
-            subdoc = doc.new_subdoc(subdoc_path)
-        except Exception:
-            raise HTTPException(status_code=500, detail="Erro ao criar subdocumento")
-        finally:
-            os.unlink(subdoc_path)
-
-        # Contexto de substituição
-        context = {
-            "dados": [{"nome": item.nome, "valor": item.valor} for item in data.dados],
-            "descricao_subdoc": subdoc
-        }
-
-        # Renderiza
-        try:
-            doc.render(context)
-        except Exception:
+            logger.error("Erro ao renderizar template", exc_info=True)
             raise HTTPException(status_code=500, detail="Erro ao renderizar documento")
 
-        # Salva resultado
-        output_filename = f"/tmp/doc-tabela-{uuid.uuid4().hex[:8]}.docx"
-        doc.save(output_filename)
-
+        output_path = salvar_documento(doc)
         return FileResponse(
-            output_filename,
+            output_path,
             filename="relatorio-tabela.docx",
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
