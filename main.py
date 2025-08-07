@@ -62,8 +62,8 @@ def converter_html_para_subdoc(doc: DocxTemplate, html: str):
 
 def construir_contexto(data: DocumentoData, doc: DocxTemplate) -> Dict[str, Any]:
     contexto = {
-        "metas": [{"meta": item.nome, "indicador": item.valor} for item in data.dados],
-        "descricao_objetivos_gerais": converter_html_para_subdoc(doc, data.descricao),
+        "dados": [{"nome": item.nome, "valor": item.valor} for item in data.dados],
+        "descricao_subdoc": converter_html_para_subdoc(doc, data.descricao),
     }
     # Adição de novos campos:
     # contexto["outro_campo"] = data.outro_campo
