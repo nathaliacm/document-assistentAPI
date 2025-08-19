@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# CORS (mantém sua config atual)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,9 +34,16 @@ class Item(BaseModel):
 
 class DocumentoData(BaseModel):
     dados: List[Item]
-    descricao: str  # HTML
 
-    # ===== Novos campos do template =====
+    # NOVOS CAMPOS (rich text)
+    objetivosGerais: Optional[str] = None   # HTML
+    objetivosEspecificos: Optional[str] = None  # HTML
+
+    # 2. DO OBJETO
+    tituloProjeto: Optional[str] = None
+    tipoProjeto: Optional[str] = None
+    areaConhecimento: Optional[str] = None
+
     # 1º PARCEIRO – ICT Pública
     razaoSocial: Optional[str] = None
     cnpj: Optional[str] = None
@@ -82,10 +90,10 @@ def carregar_template(caminho: str) -> DocxTemplate:
         raise HTTPException(status_code=400, detail="Template não encontrado")
     return DocxTemplate(caminho)
 
-def converter_html_para_subdoc(doc: DocxTemplate, html: str):
+def converter_html_para_subdoc(doc: DocxTemplate, html: Optional[str]):
     try:
         logger.info("Convertendo HTML para subdocumento...")
-        buffer: BytesIO = html2docx(html, title="Descrição")
+        buffer: BytesIO = html2docx(html or "", title="RichText")
     except Exception:
         raise HTTPException(status_code=400, detail="Erro ao converter HTML para DOCX")
 
@@ -102,11 +110,22 @@ def converter_html_para_subdoc(doc: DocxTemplate, html: str):
         os.unlink(subdoc_path)
 
 def construir_contexto(data: DocumentoData, doc: DocxTemplate) -> Dict[str, Any]:
-    contexto = {
+    contexto: Dict[str, Any] = {
+        # Tabela de metas/indicadores
         "dados": [{"nome": item.nome, "valor": item.valor} for item in data.dados],
-        "descricao": converter_html_para_subdoc(doc, data.descricao),
 
-        # ===== Novos campos mapeados 1:1 com o template =====
+        # NOVOS CAMPOS RICH
+        # objetivosGerais usa fallback para descricao (se o front ainda não mudou)
+        "objetivosGerais": converter_html_para_subdoc(
+            doc, data.objetivosGerais if (data.objetivosGerais is not None) else (data.descricao or "")
+        ),
+        "objetivosEspecificos": converter_html_para_subdoc(doc, data.objetivosEspecificos or ""),
+
+        # 2. DO OBJETO
+        "tituloProjeto": data.tituloProjeto,
+        "tipoProjeto": data.tipoProjeto,
+        "areaConhecimento": data.areaConhecimento,
+
         # 1º PARCEIRO – ICT Pública
         "razaoSocial": data.razaoSocial,
         "cnpj": data.cnpj,
@@ -147,8 +166,6 @@ def construir_contexto(data: DocumentoData, doc: DocxTemplate) -> Dict[str, Any]
         "telefoneParceiro": data.telefoneParceiro,
         "emailParceiro": data.emailParceiro,
     }
-    # Adição de novos campos:
-    # contexto["outro_campo"] = data.outro_campo
     return contexto
 
 def salvar_documento(doc: DocxTemplate) -> str:
@@ -184,7 +201,7 @@ def gerar_docx(data: DocumentoData):
     except Exception as e:
         logger.error(f"Erro inesperado: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno inesperado")
-        
+
 @app.get("/")
 def root():
     return {"status": "ok", "message": "API está online"}
