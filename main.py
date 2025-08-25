@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# CORS (mantém sua config atual)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,9 +35,14 @@ class Item(BaseModel):
 class DocumentoData(BaseModel):
     dados: List[Item]
 
-    # NOVOS CAMPOS (rich text)
-    objetivosGerais: Optional[str] = None   # HTML
-    objetivosEspecificos: Optional[str] = None  # HTML
+    # RICH TEXT (HTML)
+    objetivosGerais: Optional[str] = None
+    objetivosEspecificos: Optional[str] = None
+    justificativa: Optional[str] = None
+    responsabilidadesUFC: Optional[str] = None
+    responsabilidadesParceiro: Optional[str] = None
+    atividadesConjuntas: Optional[str] = None
+    direitosPI: Optional[str] = None
 
     # 2. DO OBJETO
     tituloProjeto: Optional[str] = None
@@ -114,12 +119,16 @@ def construir_contexto(data: DocumentoData, doc: DocxTemplate) -> Dict[str, Any]
         # Tabela de metas/indicadores
         "dados": [{"nome": item.nome, "valor": item.valor} for item in data.dados],
 
-        # NOVOS CAMPOS RICH
-        # objetivosGerais usa fallback para descricao (se o front ainda não mudou)
+        # RICH TEXT (HTML) — objetivos
         "objetivosGerais": converter_html_para_subdoc(
-            doc, data.objetivosGerais if (data.objetivosGerais is not None) else (data.descricao or "")
+            doc, data.objetivosGerais if (data.objetivosGerais is not None) else ""
         ),
         "objetivosEspecificos": converter_html_para_subdoc(doc, data.objetivosEspecificos or ""),
+        "justificativa": converter_html_para_subdoc(doc, data.justificativa or ""),
+        "responsabilidadesUFC": converter_html_para_subdoc(doc, data.responsabilidadesUFC or ""),
+        "responsabilidadesParceiro": converter_html_para_subdoc(doc, data.responsabilidadesParceiro or ""),
+        "atividadesConjuntas": converter_html_para_subdoc(doc, data.atividadesConjuntas or ""),
+        "direitosPI": converter_html_para_subdoc(doc, data.direitosPI or ""),
 
         # 2. DO OBJETO
         "tituloProjeto": data.tituloProjeto,
